@@ -35,10 +35,11 @@ jobs:
           echo "KBUILD_BUILD_USER=chenoomassekali" >> $GITHUB_ENV
           echo "KBUILD_BUILD_HOST=github-actions" >> $GITHUB_ENV
 
-      - name: Build kernel
       - name: Fix Python2 syntax in build scripts
         run: |
           sed -i 's/print "error, forbidden warning:", m.group(2)/print("error, forbidden warning:", m.group(2))/' scripts/gcc-wrapper.py
+
+      - name: Build kernel
         run: |
           export PATH="${{ github.workspace }}/clang/bin:$PATH"
           export CLANG_TRIPLE=aarch64-linux-gnu-
