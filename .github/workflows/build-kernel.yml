@@ -52,7 +52,7 @@ jobs:
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
 
-          make O=out ARCH=arm64 lmi_user_defconfig
+          make O=out ARCH=arm64 CC=clang lmi_user_defconfig
 
           # Enable BBR congestion control
           ./scripts/config --file out/.config -e TCP_CONG_ADVANCED
@@ -60,7 +60,7 @@ jobs:
           ./scripts/config --file out/.config -e NET_SCH_FQ
           ./scripts/config --file out/.config --set-str DEFAULT_TCP_CONG bbr
 
-          make O=out ARCH=arm64 olddefconfig
+          make O=out ARCH=arm64 CC=clang olddefconfig
 
           make -j$(nproc) O=out ARCH=arm64 \
             CC=clang \
