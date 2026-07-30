@@ -37,7 +37,7 @@ jobs:
 
       - name: Fix Python2 syntax in build scripts
         run: |
-          sed -i 's/print "error, forbidden warning:", m.group(2)/print("error, forbidden warning:", m.group(2))/' scripts/gcc-wrapper.py
+          sed -i -E 's/^(\s*)print (.+)$/\1print(\2)/' scripts/gcc-wrapper.py
 
       - name: Build kernel
         run: |
