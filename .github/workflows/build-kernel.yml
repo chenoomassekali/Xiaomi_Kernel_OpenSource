@@ -63,7 +63,7 @@ jobs:
 
           make O=out ARCH=arm64 CC=clang HOSTCFLAGS="-fcommon" olddefconfig
 
-          make -j$(nproc) O=out ARCH=arm64 \
+          make -j1 O=out ARCH=arm64 \
             CC=clang \
             CLANG_TRIPLE=$CLANG_TRIPLE \
             CROSS_COMPILE=$CROSS_COMPILE \
