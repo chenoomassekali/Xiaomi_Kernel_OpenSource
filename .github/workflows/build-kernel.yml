@@ -55,6 +55,11 @@ jobs:
             -e 's/struct device \*get_xiaomi_touch_dev()/struct device *get_xiaomi_touch_dev(void)/' \
             drivers/input/touchscreen/xiaomi/xiaomi_touch.c
 
+      - name: Fix gsi.c modversion relocation error
+        run: |
+          sed -i 's/static union __packed gsi_channel_scratch/static union gsi_channel_scratch/' drivers/platform/msm/gsi/gsi.c
+          grep -n "static union gsi_channel_scratch __gsi_update_mhi_channel_scratch" drivers/platform/msm/gsi/gsi.c
+
       - name: Check for RTL88XXAU driver in tree
         run: |
           echo "Searching for RTL88XXAU / RTL8812AU / RTL8821AU driver source..."
@@ -91,7 +96,7 @@ jobs:
             HOSTCFLAGS="-fcommon" \
             KCFLAGS="$KCFLAGS" \
             2>&1 | tee build.log
-          make -j1 O=out ARCH=arm64 \ 
+          make -j1 O=out ARCH=arm64 \
             CC="clang --target=aarch64-linux-gnu- -B$HOME/cross-as" \
             LD=ld.lld \
             CROSS_COMPILE=$CROSS_COMPILE \
