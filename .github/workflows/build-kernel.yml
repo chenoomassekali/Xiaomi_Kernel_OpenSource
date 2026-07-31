@@ -91,6 +91,15 @@ jobs:
             HOSTCFLAGS="-fcommon" \
             KCFLAGS="$KCFLAGS" \
             2>&1 | tee build.log
+          make -j1 O=out ARCH=arm64 \ 
+            CC="clang --target=aarch64-linux-gnu- -B$HOME/cross-as" \
+            LD=ld.lld \
+            CROSS_COMPILE=$CROSS_COMPILE \
+            CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 \
+            HOSTCFLAGS="-fcommon" \
+            KCFLAGS="$KCFLAGS" \
+            Image.gz-dtb \
+            2>&1 | tee build.log
 
       - name: Check build output
         run: |
