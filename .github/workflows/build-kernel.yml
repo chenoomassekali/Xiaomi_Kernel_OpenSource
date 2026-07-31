@@ -118,6 +118,22 @@ jobs:
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3 AK3
           rm -rf AK3/.git
 
+      - name: Configure anykernel.sh for Poco F2 Pro (lmi)
+        run: |
+          cd AK3
+          sed -i \
+            -e "s/kernel.string=.*/kernel.string=LMI-Kernel by chenoomassekali @ github/" \
+            -e "s/device.name1=.*/device.name1=lmi/" \
+            -e "s/device.name2=.*/device.name2=lmiin/" \
+            -e "s/device.name3=.*/device.name3=lmidu/" \
+            -e "s/device.name4=.*/device.name4=lmide/" \
+            -e "s/device.name5=.*/device.name5=/" \
+            -e "s/supported.versions=.*/supported.versions=10 - 16/" \
+            -e "s/IS_SLOT_DEVICE=.*/IS_SLOT_DEVICE=1;/" \
+            anykernel.sh
+          echo "----- Hasil konfigurasi anykernel.sh -----"
+          grep -E "kernel.string|device.name|supported.versions|IS_SLOT_DEVICE" anykernel.sh
+
       - name: Package kernel
         run: |
           cp out/arch/arm64/boot/Image.gz-dtb AK3/ || true
