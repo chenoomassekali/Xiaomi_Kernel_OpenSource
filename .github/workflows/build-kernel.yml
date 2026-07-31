@@ -48,12 +48,9 @@ jobs:
       - name: Build kernel
         run: |
           export PATH="${{ github.workspace }}/clang/bin:$PATH"
-          export CLANG_TRIPLE=aarch64-linux-gnu-
-          export CROSS_COMPILE=aarch64-linux-gnu-
-          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
           export HOSTCFLAGS="-fcommon"
 
-          make O=out ARCH=arm64 CC=clang HOSTCFLAGS="-fcommon" lmi_user_defconfig
+          make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 HOSTCFLAGS="-fcommon" lmi_user_defconfig
 
           # Enable BBR congestion control
           ./scripts/config --file out/.config -e TCP_CONG_ADVANCED
@@ -61,13 +58,11 @@ jobs:
           ./scripts/config --file out/.config -e NET_SCH_FQ
           ./scripts/config --file out/.config --set-str DEFAULT_TCP_CONG bbr
 
-          make O=out ARCH=arm64 CC=clang HOSTCFLAGS="-fcommon" olddefconfig
+          make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 HOSTCFLAGS="-fcommon" olddefconfig
 
-          make -j1 O=out ARCH=arm64 \
-            CC=clang \
-            CLANG_TRIPLE=$CLANG_TRIPLE \
-            CROSS_COMPILE=$CROSS_COMPILE \
-            CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 \
+          make -j$(nproc) O=out ARCH=arm64 \
+            LLVM=1 \
+            LLVM_IAS=1 \
             HOSTCFLAGS="-fcommon" \
             2>&1 | tee build.log
 
