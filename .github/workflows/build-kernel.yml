@@ -75,7 +75,7 @@ jobs:
 
           make O=out ARCH=arm64 CC="clang --target=aarch64-linux-gnu- -B$HOME/cross-as" HOSTCFLAGS="-fcommon" olddefconfig
 
-          make -j$(nproc) O=out ARCH=arm64 \
+          make -j1 O=out ARCH=arm64 \
             CC="clang --target=aarch64-linux-gnu- -B$HOME/cross-as" \
             CROSS_COMPILE=$CROSS_COMPILE \
             CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 \
@@ -113,3 +113,4 @@ jobs:
         with:
           name: lmi-kernel-${{ github.run_number }}
           path: lmi-kernel-${{ github.run_number }}.zip
+          
