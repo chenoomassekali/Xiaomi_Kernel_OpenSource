@@ -40,6 +40,10 @@ jobs:
         run: |
           sed -i -E 's/^(\s*)print (.+)$/\1print(\2)/' scripts/gcc-wrapper.py
 
+      - name: Fix implicit int declaration in smp.c
+        run: |
+          sed -i 's/^extern in_long_press;/extern int in_long_press;/' arch/arm64/kernel/smp.c
+
       - name: Check for RTL88XXAU driver in tree
         run: |
           echo "Searching for RTL88XXAU / RTL8812AU / RTL8821AU driver source..."
