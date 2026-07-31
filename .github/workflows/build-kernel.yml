@@ -52,10 +52,12 @@ jobs:
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
           export HOSTCFLAGS="-fcommon"
-          CROSS_AS_DIR=$(dirname $(command -v aarch64-linux-gnu-as))
-          export CC="clang --target=aarch64-linux-gnu- -B${CROSS_AS_DIR}"
 
-          make O=out ARCH=arm64 CC="clang --target=aarch64-linux-gnu- -B${CROSS_AS_DIR}" HOSTCFLAGS="-fcommon" lmi_user_defconfig
+          mkdir -p $HOME/cross-as
+          ln -sf $(command -v aarch64-linux-gnu-as) $HOME/cross-as/as
+          export CC="clang --target=aarch64-linux-gnu- -B$HOME/cross-as"
+
+          make O=out ARCH=arm64 CC="clang --target=aarch64-linux-gnu- -B$HOME/cross-as" HOSTCFLAGS="-fcommon" lmi_user_defconfig
 
           # Enable BBR congestion control
           ./scripts/config --file out/.config -e TCP_CONG_ADVANCED
@@ -63,10 +65,10 @@ jobs:
           ./scripts/config --file out/.config -e NET_SCH_FQ
           ./scripts/config --file out/.config --set-str DEFAULT_TCP_CONG bbr
 
-          make O=out ARCH=arm64 CC="clang --target=aarch64-linux-gnu- -B${CROSS_AS_DIR}" HOSTCFLAGS="-fcommon" olddefconfig
+          make O=out ARCH=arm64 CC="clang --target=aarch64-linux-gnu- -B$HOME/cross-as" HOSTCFLAGS="-fcommon" olddefconfig
 
           make -j$(nproc) O=out ARCH=arm64 \
-            CC="clang --target=aarch64-linux-gnu- -B${CROSS_AS_DIR}" \
+            CC="clang --target=aarch64-linux-gnu- -B$HOME/cross-as" \
             CROSS_COMPILE=$CROSS_COMPILE \
             CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 \
             HOSTCFLAGS="-fcommon" \
