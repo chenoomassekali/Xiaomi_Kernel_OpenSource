@@ -48,6 +48,13 @@ jobs:
         run: |
           sed -i 's/static char \*hw_item_dump()/static char *hw_item_dump(void)/' arch/arm64/kernel/hwconf_manager.c
 
+      - name: Fix missing prototypes in xiaomi_touch.c
+        run: |
+          sed -i \
+            -e 's/struct class \*get_xiaomi_touch_class()/struct class *get_xiaomi_touch_class(void)/' \
+            -e 's/struct device \*get_xiaomi_touch_dev()/struct device *get_xiaomi_touch_dev(void)/' \
+            drivers/input/touchscreen/xiaomi/xiaomi_touch.c
+
       - name: Check for RTL88XXAU driver in tree
         run: |
           echo "Searching for RTL88XXAU / RTL8812AU / RTL8821AU driver source..."
