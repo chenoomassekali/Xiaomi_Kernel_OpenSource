@@ -67,6 +67,7 @@ jobs:
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
           export HOSTCFLAGS="-fcommon"
+          export KCFLAGS="-Wno-error=unused-but-set-variable -Wno-error=unused-variable -Wno-error=implicit-fallthrough"
 
           mkdir -p $HOME/cross-as
           ln -sf $(command -v aarch64-linux-gnu-as) $HOME/cross-as/as
@@ -87,6 +88,7 @@ jobs:
             CROSS_COMPILE=$CROSS_COMPILE \
             CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 \
             HOSTCFLAGS="-fcommon" \
+            KCFLAGS="$KCFLAGS" \
             2>&1 | tee build.log
 
       - name: Check build output
