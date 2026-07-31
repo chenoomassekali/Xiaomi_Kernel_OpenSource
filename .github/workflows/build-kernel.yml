@@ -40,6 +40,11 @@ jobs:
         run: |
           sed -i -E 's/^(\s*)print (.+)$/\1print(\2)/' scripts/gcc-wrapper.py
 
+      - name: Force system 'as' to use aarch64 assembler
+        run: |
+          sudo ln -sf $(command -v aarch64-linux-gnu-as) /usr/bin/as
+          as --version | head -1
+
       - name: Check for RTL88XXAU driver in tree
         run: |
           echo "Searching for RTL88XXAU / RTL8812AU / RTL8821AU driver source..."
