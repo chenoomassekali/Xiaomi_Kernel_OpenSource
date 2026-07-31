@@ -73,7 +73,7 @@ jobs:
           ln -sf $(command -v aarch64-linux-gnu-as) $HOME/cross-as/as
           export CC="clang --target=aarch64-linux-gnu- -B$HOME/cross-as"
 
-          make O=out ARCH=arm64 CC="clang --target=aarch64-linux-gnu- -B$HOME/cross-as" HOSTCFLAGS="-fcommon" lmi_user_defconfig
+          make O=out ARCH=arm64 CC="clang --target=aarch64-linux-gnu- -B$HOME/cross-as" LD=ld.lld HOSTCFLAGS="-fcommon" lmi_user_defconfig
 
           # Enable BBR congestion control
           ./scripts/config --file out/.config -e TCP_CONG_ADVANCED
@@ -81,10 +81,11 @@ jobs:
           ./scripts/config --file out/.config -e NET_SCH_FQ
           ./scripts/config --file out/.config --set-str DEFAULT_TCP_CONG bbr
 
-          make O=out ARCH=arm64 CC="clang --target=aarch64-linux-gnu- -B$HOME/cross-as" HOSTCFLAGS="-fcommon" olddefconfig
+          make O=out ARCH=arm64 CC="clang --target=aarch64-linux-gnu- -B$HOME/cross-as" LD=ld.lld HOSTCFLAGS="-fcommon" olddefconfig
 
           make -j1 O=out ARCH=arm64 \
             CC="clang --target=aarch64-linux-gnu- -B$HOME/cross-as" \
+            LD=ld.lld \
             CROSS_COMPILE=$CROSS_COMPILE \
             CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 \
             HOSTCFLAGS="-fcommon" \
