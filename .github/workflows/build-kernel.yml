@@ -112,6 +112,13 @@ jobs:
             echo "Build failed, Image.gz-dtb not found"
             exit 1
           fi
+          echo "----- Cek apakah dtbo.img benar-benar ke-generate -----"
+          if [ -f out/arch/arm64/boot/dtbo.img ]; then
+            ls -la out/arch/arm64/boot/dtbo.img
+            echo "dtbo.img DITEMUKAN — cek manual apakah ini fresh build atau sisa lama"
+          else
+            echo "dtbo.img TIDAK ditemukan di output build — aman, tidak akan di-bundle"
+          fi
 
       - name: Clone AnyKernel3
         run: |
@@ -135,10 +142,9 @@ jobs:
           echo "----- Hasil konfigurasi anykernel.sh -----"
           grep -E "kernel.string|device.name|supported.versions|IS_SLOT_DEVICE|BLOCK=" anykernel.sh
 
-      - name: Package kernel
+      - name: Package kernel (tanpa dtbo, jangan sentuh partisi dtbo vendor)
         run: |
-          cp out/arch/arm64/boot/Image.gz-dtb AK3/ || true
-          cp out/arch/arm64/boot/dtbo.img AK3/ || true
+          cp out/arch/arm64/boot/Image.gz-dtb AK3/
           cd AK3
           zip -r9 ../lmi-kernel-${{ github.run_number }}.zip . -x '.git*'
 
