@@ -105,6 +105,16 @@ jobs:
             KCFLAGS="$KCFLAGS" \
             Image.gz-dtb \
             2>&1 | tee build.log
+          echo "----- Build dtbs (termasuk dtbo.img overlay LMI) -----"
+          make -j1 O=out ARCH=arm64 \
+            CC="clang --target=aarch64-linux-gnu- -B$HOME/cross-as" \
+            LD=ld.lld \
+            CROSS_COMPILE=$CROSS_COMPILE \
+            CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 \
+            HOSTCFLAGS="-fcommon" \
+            KCFLAGS="$KCFLAGS" \
+            dtbs \
+            2>&1 | tee -a build.log
 
       - name: Check build output
         run: |
@@ -112,12 +122,13 @@ jobs:
             echo "Build failed, Image.gz-dtb not found"
             exit 1
           fi
-          echo "----- Cek apakah dtbo.img benar-benar ke-generate -----"
+          echo "----- Cek dtbo.img hasil build -----"
           if [ -f out/arch/arm64/boot/dtbo.img ]; then
             ls -la out/arch/arm64/boot/dtbo.img
-            echo "dtbo.img DITEMUKAN — cek manual apakah ini fresh build atau sisa lama"
+            echo "dtbo.img BERHASIL di-generate"
           else
-            echo "dtbo.img TIDAK ditemukan di output build — aman, tidak akan di-bundle"
+            echo "PERINGATAN: dtbo.img TIDAK ditemukan meski target dtbs sudah dijalankan"
+            find out/arch/arm64/boot -iname "*dtbo*"
           fi
 
       - name: Clone AnyKernel3
@@ -142,9 +153,15 @@ jobs:
           echo "----- Hasil konfigurasi anykernel.sh -----"
           grep -E "kernel.string|device.name|supported.versions|IS_SLOT_DEVICE|BLOCK=" anykernel.sh
 
-      - name: Package kernel (tanpa dtbo, jangan sentuh partisi dtbo vendor)
+      - name: Package kernel (dengan dtbo.img fresh hasil build)
         run: |
           cp out/arch/arm64/boot/Image.gz-dtb AK3/
+          if [ -f out/arch/arm64/boot/dtbo.img ]; then
+            cp out/arch/arm64/boot/dtbo.img AK3/
+            echo "dtbo.img ikut dipackage"
+          else
+            echo "dtbo.img tidak ada, packaging tanpa dtbo (pakai dtbo vendor bawaan)"
+          fi
           cd AK3
           zip -r9 ../lmi-kernel-${{ github.run_number }}.zip . -x '.git*'
 
