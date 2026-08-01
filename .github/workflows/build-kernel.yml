@@ -12,6 +12,20 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Debug - cek apakah vendor/Makefile beneran ada saat checkout
+        run: |
+          echo "----- Isi folder arch/arm64/boot/dts -----"
+          ls -la arch/arm64/boot/dts/
+          echo "----- Cek vendor/Makefile -----"
+          ls -la arch/arm64/boot/dts/vendor/ 2>&1
+          echo "----- Isi vendor/Makefile kalau ada -----"
+          cat arch/arm64/boot/dts/vendor/Makefile 2>&1
+          echo "----- Cek vendor/qcom/Makefile -----"
+          ls -la arch/arm64/boot/dts/vendor/qcom/ 2>&1 | head -5
+          echo "----- Git status/log terkait vendor -----"
+          git log --oneline -3 -- arch/arm64/boot/dts/vendor/
+          git status arch/arm64/boot/dts/vendor/
+
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -105,7 +119,7 @@ jobs:
             KCFLAGS="$KCFLAGS" \
             Image.gz-dtb \
             2>&1 | tee build.log
-          echo "----- Build dtbs (termasuk dtbo.img overlay LMI) -----"
+          echo "----- Build dtbs (termasuk dtbo dari vendor jika ke-include) -----"
           make -j1 O=out ARCH=arm64 \
             CC="clang --target=aarch64-linux-gnu- -B$HOME/cross-as" \
             LD=ld.lld \
@@ -129,6 +143,8 @@ jobs:
           else
             echo "PERINGATAN: dtbo.img TIDAK ditemukan meski target dtbs sudah dijalankan"
             find out/arch/arm64/boot -iname "*dtbo*"
+            find out/arch/arm64/boot -iname "*lmi*"
+            find out/arch/arm64/boot -iname "*kona*"
           fi
 
       - name: Clone AnyKernel3
