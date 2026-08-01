@@ -130,9 +130,10 @@ jobs:
             -e "s/device.name5=.*/device.name5=/" \
             -e "s/supported.versions=.*/supported.versions=10 - 16/" \
             -e "s/IS_SLOT_DEVICE=.*/IS_SLOT_DEVICE=0;/" \
+            -e "s#BLOCK=.*#BLOCK=auto;#" \
             anykernel.sh
           echo "----- Hasil konfigurasi anykernel.sh -----"
-          grep -E "kernel.string|device.name|supported.versions|IS_SLOT_DEVICE" anykernel.sh
+          grep -E "kernel.string|device.name|supported.versions|IS_SLOT_DEVICE|BLOCK=" anykernel.sh
 
       - name: Package kernel
         run: |
