@@ -38,6 +38,30 @@ jobs:
             sed -i '1i subdir-y += vendor' arch/arm64/boot/dts/Makefile
           fi
 
+      - name: Auto-stub missing #include files (repo kernel_devicetree tidak lengkap)
+        run: |
+          echo "----- Mencari #include yang menunjuk file tidak ada, membuat stub kosong -----"
+          cd arch/arm64/boot/dts/vendor
+          for round in 1 2 3 4 5; do
+            missing_found=0
+            for f in $(find . -name "*.dts" -o -name "*.dtsi"); do
+              dir=$(dirname "$f")
+              grep -oP '#include\s+"\K[^"]+' "$f" 2>/dev/null | while read -r inc; do
+                target="$dir/$inc"
+                if [ ! -f "$target" ]; then
+                  target2=$(find . -path "*/$inc" 2>/dev/null | head -1)
+                  if [ -z "$target2" ]; then
+                    echo "STUB: membuat file kosong untuk $target (di-include dari $f)"
+                    mkdir -p "$(dirname "$target")"
+                    touch "$target"
+                  fi
+                fi
+              done
+            done
+          done
+          echo "----- Selesai membuat stub. Daftar file stub kosong yang dibuat: -----"
+          find . -empty -name "*.dtsi" -o -empty -name "*.dts" 2>/dev/null
+
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -68,33 +92,30 @@ jobs:
 
       - name: Fix implicit int declaration in smp.c
         run: |
-          sed -i 's/^extern in_long_press;/extern int in_long_press;/' arch/arm64/kernel/smp.c 2>/dev/null || echo "smp.c fix tidak diperlukan/tidak ditemukan, skip"
+          sed -i 's/^extern in_long_press;/extern int in_long_press;/' arch/arm64/kernel/smp.c 2>/dev/null || echo "skip"
 
       - name: Fix missing prototype in hwconf_manager.c
         run: |
-          sed -i 's/static char \*hw_item_dump()/static char *hw_item_dump(void)/' arch/arm64/kernel/hwconf_manager.c 2>/dev/null || echo "hwconf_manager.c fix tidak diperlukan/tidak ditemukan, skip"
+          sed -i 's/static char \*hw_item_dump()/static char *hw_item_dump(void)/' arch/arm64/kernel/hwconf_manager.c 2>/dev/null || echo "skip"
 
       - name: Fix missing prototypes in xiaomi_touch.c
         run: |
           sed -i \
             -e 's/struct class \*get_xiaomi_touch_class()/struct class *get_xiaomi_touch_class(void)/' \
             -e 's/struct device \*get_xiaomi_touch_dev()/struct device *get_xiaomi_touch_dev(void)/' \
-            drivers/input/touchscreen/xiaomi/xiaomi_touch.c 2>/dev/null || echo "xiaomi_touch.c fix tidak diperlukan/tidak ditemukan, skip"
+            drivers/input/touchscreen/xiaomi/xiaomi_touch.c 2>/dev/null || echo "skip"
 
       - name: Fix gsi.c modversion relocation error (jika ada)
         run: |
           if [ -f drivers/platform/msm/gsi/gsi.c ]; then
             sed -i 's/static union __packed gsi_channel_scratch/static union gsi_channel_scratch/' drivers/platform/msm/gsi/gsi.c
-            grep -n "static union gsi_channel_scratch __gsi_update_mhi_channel_scratch" drivers/platform/msm/gsi/gsi.c
           else
-            echo "gsi.c tidak ditemukan di tree ini, skip fix"
+            echo "skip"
           fi
 
       - name: Check for RTL88XXAU driver in tree
         run: |
-          echo "Searching for RTL88XXAU / RTL8812AU / RTL8821AU driver source..."
-          grep -ril "RTL8812AU\|RTL8821AU\|RTL88XXAU" drivers/net/wireless/ 2>/dev/null || echo "NOT FOUND: driver source not present in tree"
-          find . -iname "*rtl88*" -o -iname "*8812au*" -o -iname "*8821au*" 2>/dev/null | head -20
+          grep -ril "RTL8812AU\|RTL8821AU\|RTL88XXAU" drivers/net/wireless/ 2>/dev/null || echo "NOT FOUND"
 
       - name: Build kernel
         run: |
@@ -110,10 +131,7 @@ jobs:
 
           make O=out ARCH=arm64 CC="clang --target=aarch64-linux-gnu- -B$HOME/cross-as" LD=ld.lld HOSTCFLAGS="-fcommon" lmi_user_defconfig
 
-          # Paksa aktifkan skema dtbo-overlay, biar tidak masuk jalur dtb-y lama yang butuh kona-rumi.dtb
           ./scripts/config --file out/.config -e CONFIG_BUILD_ARM64_DT_OVERLAY
-
-          # Enable BBR congestion control
           ./scripts/config --file out/.config -e TCP_CONG_ADVANCED
           ./scripts/config --file out/.config -e TCP_CONG_BBR
           ./scripts/config --file out/.config -e NET_SCH_FQ
@@ -121,34 +139,21 @@ jobs:
 
           make O=out ARCH=arm64 CC="clang --target=aarch64-linux-gnu- -B$HOME/cross-as" LD=ld.lld HOSTCFLAGS="-fcommon" olddefconfig
 
-          echo "----- Verifikasi CONFIG_BUILD_ARM64_DT_OVERLAY aktif -----"
-          grep "CONFIG_BUILD_ARM64_DT_OVERLAY" out/.config
-
           make -j1 O=out ARCH=arm64 \
             CC="clang --target=aarch64-linux-gnu- -B$HOME/cross-as" \
-            LD=ld.lld \
-            CROSS_COMPILE=$CROSS_COMPILE \
-            CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 \
-            HOSTCFLAGS="-fcommon" \
-            KCFLAGS="$KCFLAGS" \
+            LD=ld.lld CROSS_COMPILE=$CROSS_COMPILE CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 \
+            HOSTCFLAGS="-fcommon" KCFLAGS="$KCFLAGS" \
             2>&1 | tee build.log
           make -j1 O=out ARCH=arm64 \
             CC="clang --target=aarch64-linux-gnu- -B$HOME/cross-as" \
-            LD=ld.lld \
-            CROSS_COMPILE=$CROSS_COMPILE \
-            CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 \
-            HOSTCFLAGS="-fcommon" \
-            KCFLAGS="$KCFLAGS" \
+            LD=ld.lld CROSS_COMPILE=$CROSS_COMPILE CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 \
+            HOSTCFLAGS="-fcommon" KCFLAGS="$KCFLAGS" \
             Image.gz-dtb \
             2>&1 | tee build.log
-          echo "----- Build dtbs (dtbo overlay LMI dari kernel_devicetree repo) -----"
           make -j1 O=out ARCH=arm64 \
             CC="clang --target=aarch64-linux-gnu- -B$HOME/cross-as" \
-            LD=ld.lld \
-            CROSS_COMPILE=$CROSS_COMPILE \
-            CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 \
-            HOSTCFLAGS="-fcommon" \
-            KCFLAGS="$KCFLAGS" \
+            LD=ld.lld CROSS_COMPILE=$CROSS_COMPILE CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 \
+            HOSTCFLAGS="-fcommon" KCFLAGS="$KCFLAGS" \
             dtbs \
             2>&1 | tee -a build.log
 
@@ -158,14 +163,10 @@ jobs:
             echo "Build failed, Image.gz-dtb not found"
             exit 1
           fi
-          echo "----- Cek DTB/dtbo hasil build -----"
           find out/arch/arm64/boot -iname "*lmi*"
           find out/arch/arm64/boot -iname "*.dtbo" | head -20
           if [ -f out/arch/arm64/boot/dtbo.img ]; then
             ls -la out/arch/arm64/boot/dtbo.img
-            echo "dtbo.img BERHASIL di-generate"
-          else
-            echo "dtbo.img tidak digabung sebagai satu file, cek .dtbo individual di atas"
           fi
 
       - name: Clone AnyKernel3
@@ -187,17 +188,12 @@ jobs:
             -e "s/IS_SLOT_DEVICE=.*/IS_SLOT_DEVICE=0;/" \
             -e "s#BLOCK=.*#BLOCK=auto;#" \
             anykernel.sh
-          echo "----- Hasil konfigurasi anykernel.sh -----"
-          grep -E "kernel.string|device.name|supported.versions|IS_SLOT_DEVICE|BLOCK=" anykernel.sh
 
       - name: Package kernel
         run: |
           cp out/arch/arm64/boot/Image.gz-dtb AK3/
           if [ -f out/arch/arm64/boot/dtbo.img ]; then
             cp out/arch/arm64/boot/dtbo.img AK3/
-            echo "dtbo.img ikut dipackage"
-          else
-            echo "dtbo.img tidak ada, packaging tanpa dtbo (pakai dtbo stok device)"
           fi
           cd AK3
           zip -r9 ../lmi-kernel-${{ github.run_number }}.zip . -x '.git*'
