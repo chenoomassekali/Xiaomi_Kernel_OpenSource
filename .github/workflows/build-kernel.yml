@@ -29,6 +29,16 @@ jobs:
           echo "----- Cek folder xiaomi/lmi -----"
           find arch/arm64/boot/dts/vendor -iname "*lmi*"
 
+      - name: Fix Makefile tab/space issues in device tree
+        run: |
+          echo "----- Memperbaiki indentasi Makefile (spasi -> TAB) di folder vendor -----"
+          find arch/arm64/boot/dts/vendor -name "Makefile" | while read -r mkfile; do
+            echo "Memproses: $mkfile"
+            sed -i 's/^        /\t/' "$mkfile"
+          done
+          echo "----- Verifikasi arch/arm64/boot/dts/vendor/qcom/Makefile baris 23 -----"
+          sed -n '20,26p' arch/arm64/boot/dts/vendor/qcom/Makefile | cat -A | head -10
+
       - name: Verify top-level dts Makefile includes vendor
         run: |
           echo "----- Isi arch/arm64/boot/dts/Makefile -----"
@@ -219,4 +229,3 @@ jobs:
         with:
           name: lmi-kernel-${{ github.run_number }}
           path: lmi-kernel-${{ github.run_number }}.zip
-          
