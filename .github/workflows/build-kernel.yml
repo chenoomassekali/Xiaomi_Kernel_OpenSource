@@ -29,16 +29,6 @@ jobs:
           echo "----- Cek folder xiaomi/lmi -----"
           find arch/arm64/boot/dts/vendor -iname "*lmi*"
 
-      - name: Fix Makefile tab/space issues in device tree
-        run: |
-          echo "----- Memperbaiki indentasi Makefile (spasi -> TAB) di folder vendor -----"
-          find arch/arm64/boot/dts/vendor -name "Makefile" | while read -r mkfile; do
-            echo "Memproses: $mkfile"
-            sed -i 's/^        /\t/' "$mkfile"
-          done
-          echo "----- Verifikasi arch/arm64/boot/dts/vendor/qcom/Makefile baris 23 -----"
-          sed -n '20,26p' arch/arm64/boot/dts/vendor/qcom/Makefile | cat -A | head -10
-
       - name: Verify top-level dts Makefile includes vendor
         run: |
           echo "----- Isi arch/arm64/boot/dts/Makefile -----"
@@ -46,17 +36,6 @@ jobs:
           if ! grep -q "vendor" arch/arm64/boot/dts/Makefile; then
             echo "PERINGATAN: Makefile top-level belum reference folder vendor, menambahkan fallback"
             sed -i '1i subdir-y += vendor' arch/arm64/boot/dts/Makefile
-          fi
-
-      - name: Remove problematic non-lmi dtb targets
-        run: |
-          echo "----- Menghapus kona-rumi.dts yang tidak relevan dan menyebabkan build error -----"
-          find arch/arm64/boot/dts/vendor/qcom -iname "*rumi*" -exec rm -v {} \;
-          echo "----- Cek Makefile qcom, hapus referensi rumi kalau ada -----"
-          grep -rn "rumi" arch/arm64/boot/dts/vendor/qcom/Makefile || echo "tidak ada referensi rumi di Makefile"
-          if grep -q "rumi" arch/arm64/boot/dts/vendor/qcom/Makefile 2>/dev/null; then
-            sed -i '/rumi/d' arch/arm64/boot/dts/vendor/qcom/Makefile
-            echo "Baris referensi rumi dihapus dari Makefile"
           fi
 
       - name: Install dependencies
@@ -131,6 +110,9 @@ jobs:
 
           make O=out ARCH=arm64 CC="clang --target=aarch64-linux-gnu- -B$HOME/cross-as" LD=ld.lld HOSTCFLAGS="-fcommon" lmi_user_defconfig
 
+          # Paksa aktifkan skema dtbo-overlay, biar tidak masuk jalur dtb-y lama yang butuh kona-rumi.dtb
+          ./scripts/config --file out/.config -e CONFIG_BUILD_ARM64_DT_OVERLAY
+
           # Enable BBR congestion control
           ./scripts/config --file out/.config -e TCP_CONG_ADVANCED
           ./scripts/config --file out/.config -e TCP_CONG_BBR
@@ -138,6 +120,9 @@ jobs:
           ./scripts/config --file out/.config --set-str DEFAULT_TCP_CONG bbr
 
           make O=out ARCH=arm64 CC="clang --target=aarch64-linux-gnu- -B$HOME/cross-as" LD=ld.lld HOSTCFLAGS="-fcommon" olddefconfig
+
+          echo "----- Verifikasi CONFIG_BUILD_ARM64_DT_OVERLAY aktif -----"
+          grep "CONFIG_BUILD_ARM64_DT_OVERLAY" out/.config
 
           make -j1 O=out ARCH=arm64 \
             CC="clang --target=aarch64-linux-gnu- -B$HOME/cross-as" \
@@ -156,7 +141,7 @@ jobs:
             KCFLAGS="$KCFLAGS" \
             Image.gz-dtb \
             2>&1 | tee build.log
-          echo "----- Build dtbs (device tree dari kernel_devicetree repo) -----"
+          echo "----- Build dtbs (dtbo overlay LMI dari kernel_devicetree repo) -----"
           make -j1 O=out ARCH=arm64 \
             CC="clang --target=aarch64-linux-gnu- -B$HOME/cross-as" \
             LD=ld.lld \
@@ -175,7 +160,7 @@ jobs:
           fi
           echo "----- Cek DTB/dtbo hasil build -----"
           find out/arch/arm64/boot -iname "*lmi*"
-          find out/arch/arm64/boot -iname "*.dtb" | head -20
+          find out/arch/arm64/boot -iname "*.dtbo" | head -20
           if [ -f out/arch/arm64/boot/dtbo.img ]; then
             ls -la out/arch/arm64/boot/dtbo.img
             echo "dtbo.img BERHASIL di-generate"
