@@ -1,4 +1,4 @@
-name: Build Kernel
+name: Build Kernel Modules (BBR + RTL88XXAU)
 
 on:
   workflow_dispatch:
@@ -14,53 +14,13 @@ jobs:
           ref: lmi-q-oss
           submodules: recursive
 
-      - name: Clone device tree repo (terpisah dari kernel source)
+      - name: Cari commit paling dekat dengan tanggal build kernel stok (4 Agustus 2020)
         run: |
-          git clone --depth=1 --branch lmi-q-oss https://github.com/MiCode/kernel_devicetree.git /tmp/kernel_devicetree
-          echo "----- Isi kernel_devicetree -----"
-          ls -la /tmp/kernel_devicetree/
-
-      - name: Merge device tree ke dalam kernel source
-        run: |
-          mkdir -p arch/arm64/boot/dts/vendor
-          cp -r /tmp/kernel_devicetree/* arch/arm64/boot/dts/vendor/
-          echo "----- Isi arch/arm64/boot/dts/vendor setelah merge -----"
-          ls -la arch/arm64/boot/dts/vendor/
-          echo "----- Cek folder xiaomi/lmi -----"
-          find arch/arm64/boot/dts/vendor -iname "*lmi*"
-
-      - name: Verify top-level dts Makefile includes vendor
-        run: |
-          echo "----- Isi arch/arm64/boot/dts/Makefile -----"
-          cat arch/arm64/boot/dts/Makefile
-          if ! grep -q "vendor" arch/arm64/boot/dts/Makefile; then
-            echo "PERINGATAN: Makefile top-level belum reference folder vendor, menambahkan fallback"
-            sed -i '1i subdir-y += vendor' arch/arm64/boot/dts/Makefile
-          fi
-
-      - name: Auto-stub missing #include files (repo kernel_devicetree tidak lengkap)
-        run: |
-          echo "----- Mencari #include yang menunjuk file tidak ada, membuat stub kosong -----"
-          cd arch/arm64/boot/dts/vendor
-          for round in 1 2 3 4 5; do
-            missing_found=0
-            for f in $(find . -name "*.dts" -o -name "*.dtsi"); do
-              dir=$(dirname "$f")
-              grep -oP '#include\s+"\K[^"]+' "$f" 2>/dev/null | while read -r inc; do
-                target="$dir/$inc"
-                if [ ! -f "$target" ]; then
-                  target2=$(find . -path "*/$inc" 2>/dev/null | head -1)
-                  if [ -z "$target2" ]; then
-                    echo "STUB: membuat file kosong untuk $target (di-include dari $f)"
-                    mkdir -p "$(dirname "$target")"
-                    touch "$target"
-                  fi
-                fi
-              done
-            done
-          done
-          echo "----- Selesai membuat stub. Daftar file stub kosong yang dibuat: -----"
-          find . -empty -name "*.dtsi" -o -empty -name "*.dts" 2>/dev/null
+          echo "----- Commit terdekat sebelum/pada 4 Agustus 2020 -----"
+          TARGET_COMMIT=$(git log --before="2020-08-05" -1 --format="%H")
+          echo "Commit yang dipakai: $TARGET_COMMIT"
+          git log -1 "$TARGET_COMMIT"
+          git checkout "$TARGET_COMMIT"
 
       - name: Install dependencies
         run: |
@@ -88,125 +48,127 @@ jobs:
 
       - name: Fix Python2 syntax in build scripts
         run: |
-          sed -i -E 's/^(\s*)print (.+)$/\1print(\2)/' scripts/gcc-wrapper.py
+          sed -i -E 's/^(\s*)print (.+)$/\1print(\2)/' scripts/gcc-wrapper.py 2>/dev/null || echo "skip"
 
-      - name: Fix implicit int declaration in smp.c
-        run: |
-          sed -i 's/^extern in_long_press;/extern int in_long_press;/' arch/arm64/kernel/smp.c 2>/dev/null || echo "skip"
-
-      - name: Fix missing prototype in hwconf_manager.c
-        run: |
-          sed -i 's/static char \*hw_item_dump()/static char *hw_item_dump(void)/' arch/arm64/kernel/hwconf_manager.c 2>/dev/null || echo "skip"
-
-      - name: Fix missing prototypes in xiaomi_touch.c
-        run: |
-          sed -i \
-            -e 's/struct class \*get_xiaomi_touch_class()/struct class *get_xiaomi_touch_class(void)/' \
-            -e 's/struct device \*get_xiaomi_touch_dev()/struct device *get_xiaomi_touch_dev(void)/' \
-            drivers/input/touchscreen/xiaomi/xiaomi_touch.c 2>/dev/null || echo "skip"
-
-      - name: Fix gsi.c modversion relocation error (jika ada)
-        run: |
-          if [ -f drivers/platform/msm/gsi/gsi.c ]; then
-            sed -i 's/static union __packed gsi_channel_scratch/static union gsi_channel_scratch/' drivers/platform/msm/gsi/gsi.c
-          else
-            echo "skip"
-          fi
-
-      - name: Check for RTL88XXAU driver in tree
-        run: |
-          grep -ril "RTL8812AU\|RTL8821AU\|RTL88XXAU" drivers/net/wireless/ 2>/dev/null || echo "NOT FOUND"
-
-      - name: Build kernel
+      - name: Prepare kernel build tree (modules_prepare)
         run: |
           export PATH="${{ github.workspace }}/clang/bin:$PATH"
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
           export HOSTCFLAGS="-fcommon"
-          export KCFLAGS="-Wno-error=unused-but-set-variable -Wno-error=unused-variable -Wno-error=implicit-fallthrough"
+          export CC="clang --target=aarch64-linux-gnu-"
 
-          mkdir -p $HOME/cross-as
-          ln -sf $(command -v aarch64-linux-gnu-as) $HOME/cross-as/as
-          export CC="clang --target=aarch64-linux-gnu- -B$HOME/cross-as"
+          make O=out ARCH=arm64 CC="$CC" LD=ld.lld HOSTCFLAGS="-fcommon" lmi_user_defconfig
 
-          make O=out ARCH=arm64 CC="clang --target=aarch64-linux-gnu- -B$HOME/cross-as" LD=ld.lld HOSTCFLAGS="-fcommon" lmi_user_defconfig
-
-          ./scripts/config --file out/.config -e CONFIG_BUILD_ARM64_DT_OVERLAY
+          # Pastikan BBR dibuild sebagai MODULE (m), bukan built-in (y)
           ./scripts/config --file out/.config -e TCP_CONG_ADVANCED
-          ./scripts/config --file out/.config -e TCP_CONG_BBR
-          ./scripts/config --file out/.config -e NET_SCH_FQ
-          ./scripts/config --file out/.config --set-str DEFAULT_TCP_CONG bbr
+          ./scripts/config --file out/.config -m TCP_CONG_BBR
+          ./scripts/config --file out/.config -m NET_SCH_FQ
+          ./scripts/config --file out/.config -e MODULES
+          ./scripts/config --file out/.config -e MODULE_UNLOAD
 
-          make O=out ARCH=arm64 CC="clang --target=aarch64-linux-gnu- -B$HOME/cross-as" LD=ld.lld HOSTCFLAGS="-fcommon" olddefconfig
+          make O=out ARCH=arm64 CC="$CC" LD=ld.lld HOSTCFLAGS="-fcommon" olddefconfig
 
-          make -j1 O=out ARCH=arm64 \
-            CC="clang --target=aarch64-linux-gnu- -B$HOME/cross-as" \
-            LD=ld.lld CROSS_COMPILE=$CROSS_COMPILE CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 \
-            HOSTCFLAGS="-fcommon" KCFLAGS="$KCFLAGS" \
-            2>&1 | tee build.log
-          make -j1 O=out ARCH=arm64 \
-            CC="clang --target=aarch64-linux-gnu- -B$HOME/cross-as" \
-            LD=ld.lld CROSS_COMPILE=$CROSS_COMPILE CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 \
-            HOSTCFLAGS="-fcommon" KCFLAGS="$KCFLAGS" \
-            Image.gz-dtb \
-            2>&1 | tee build.log
-          make -j1 O=out ARCH=arm64 \
-            CC="clang --target=aarch64-linux-gnu- -B$HOME/cross-as" \
-            LD=ld.lld CROSS_COMPILE=$CROSS_COMPILE CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 \
-            HOSTCFLAGS="-fcommon" KCFLAGS="$KCFLAGS" \
-            dtbs \
-            2>&1 | tee -a build.log
+          echo "----- Verifikasi config BBR sebagai module -----"
+          grep "CONFIG_TCP_CONG_BBR" out/.config
+          grep "CONFIG_NET_SCH_FQ" out/.config
 
-      - name: Check build output
+          echo "----- Menyiapkan kernel tree untuk build modul eksternal -----"
+          make -j$(nproc) O=out ARCH=arm64 CC="$CC" LD=ld.lld \
+            CROSS_COMPILE=$CROSS_COMPILE CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 \
+            HOSTCFLAGS="-fcommon" \
+            modules_prepare 2>&1 | tee prepare.log
+
+      - name: Build modul BBR (tcp_bbr.ko)
         run: |
-          if [ ! -f out/arch/arm64/boot/Image.gz-dtb ]; then
-            echo "Build failed, Image.gz-dtb not found"
-            exit 1
+          export PATH="${{ github.workspace }}/clang/bin:$PATH"
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CC="clang --target=aarch64-linux-gnu-"
+
+          make -j$(nproc) O=out ARCH=arm64 CC="$CC" LD=ld.lld \
+            CROSS_COMPILE=$CROSS_COMPILE HOSTCFLAGS="-fcommon" \
+            M=net/ipv4 tcp_bbr.ko 2>&1 | tee bbr_build.log
+
+          echo "----- Cek hasil tcp_bbr.ko -----"
+          find out -name "tcp_bbr.ko"
+
+      - name: Clone driver RTL88XXAU (aircrack-ng, kompatibel kernel 4.19)
+        run: |
+          git clone --depth=1 https://github.com/aircrack-ng/rtl8812au.git /tmp/rtl88xxau
+          echo "----- Isi source driver -----"
+          ls -la /tmp/rtl88xxau/
+
+      - name: Build modul RTL88XXAU (88XXau.ko)
+        run: |
+          export PATH="${{ github.workspace }}/clang/bin:$PATH"
+          export ARCH=arm64
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CC="clang --target=aarch64-linux-gnu-"
+          KERNEL_DIR="$(pwd)/out"
+
+          cd /tmp/rtl88xxau
+          make ARCH=arm64 CROSS_COMPILE=$CROSS_COMPILE CC="$CC" \
+            KSRC="$KERNEL_DIR" \
+            KVER="$(cat $KERNEL_DIR/include/config/kernel.release 2>/dev/null || echo 4.19.81-perf-g7ec11a9)" \
+            modules 2>&1 | tee /tmp/rtl_build.log || echo "Build RTL88XXAU selesai dengan kemungkinan warning, cek log"
+
+          echo "----- Cek hasil modul RTL88XXAU -----"
+          find /tmp/rtl8812au -name "*.ko"
+
+      - name: Package sebagai Magisk Module
+        run: |
+          mkdir -p magisk_module/system/lib/modules
+          cp out/net/ipv4/tcp_bbr.ko magisk_module/system/lib/modules/ 2>/dev/null || echo "tcp_bbr.ko tidak ditemukan"
+          find /tmp/rtl8812au -name "*.ko" -exec cp {} magisk_module/system/lib/modules/ \; 2>/dev/null || echo "modul RTL88XXAU tidak ditemukan"
+
+          cat > magisk_module/module.prop << 'EOF'
+          id=lmi_bbr_wifi_modules
+          name=LMI BBR + RTL88XXAU Modules
+          version=v1.0
+          versionCode=1
+          author=chenoomassekali
+          description=Modul kernel BBR congestion control dan driver RTL88XXAU untuk kernel stok lmi 4.19.81-perf-g7ec11a9
+          EOF
+
+          cat > magisk_module/service.sh << 'EOF'
+          #!/system/bin/sh
+          MODDIR=${0%/*}
+          
+          # Load modul BBR
+          if [ -f "$MODDIR/system/lib/modules/tcp_bbr.ko" ]; then
+            insmod "$MODDIR/system/lib/modules/tcp_bbr.ko" 2>/dev/null
+            sysctl -w net.ipv4.tcp_congestion_control=bbr 2>/dev/null
           fi
-          find out/arch/arm64/boot -iname "*lmi*"
-          find out/arch/arm64/boot -iname "*.dtbo" | head -20
-          if [ -f out/arch/arm64/boot/dtbo.img ]; then
-            ls -la out/arch/arm64/boot/dtbo.img
-          fi
+          
+          # Load modul WiFi adapter RTL88XXAU
+          for ko in "$MODDIR"/system/lib/modules/88XXau*.ko "$MODDIR"/system/lib/modules/*rtl88*.ko; do
+            if [ -f "$ko" ]; then
+              insmod "$ko" 2>/dev/null
+            fi
+          done
+          EOF
+          chmod 755 magisk_module/service.sh
 
-      - name: Clone AnyKernel3
-        run: |
-          git clone --depth=1 https://github.com/osm0sis/AnyKernel3 AK3
-          rm -rf AK3/.git
+          touch magisk_module/skip_mount
 
-      - name: Configure anykernel.sh for Poco F2 Pro (lmi)
-        run: |
-          cd AK3
-          sed -i \
-            -e "s/kernel.string=.*/kernel.string=LMI-Kernel by chenoomassekali @ github/" \
-            -e "s/device.name1=.*/device.name1=lmi/" \
-            -e "s/device.name2=.*/device.name2=lmiin/" \
-            -e "s/device.name3=.*/device.name3=lmidu/" \
-            -e "s/device.name4=.*/device.name4=lmide/" \
-            -e "s/device.name5=.*/device.name5=/" \
-            -e "s/supported.versions=.*/supported.versions=10 - 16/" \
-            -e "s/IS_SLOT_DEVICE=.*/IS_SLOT_DEVICE=0;/" \
-            -e "s#BLOCK=.*#BLOCK=auto;#" \
-            anykernel.sh
+          cd magisk_module
+          zip -r9 ../lmi-bbr-wifi-module.zip . -x '.git*'
+          cd ..
+          echo "----- Isi paket akhir -----"
+          unzip -l lmi-bbr-wifi-module.zip
 
-      - name: Package kernel
-        run: |
-          cp out/arch/arm64/boot/Image.gz-dtb AK3/
-          if [ -f out/arch/arm64/boot/dtbo.img ]; then
-            cp out/arch/arm64/boot/dtbo.img AK3/
-          fi
-          cd AK3
-          zip -r9 ../lmi-kernel-${{ github.run_number }}.zip . -x '.git*'
-
-      - name: Upload build log
+      - name: Upload build logs
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: build-log
-          path: build.log
+          name: build-logs
+          path: |
+            prepare.log
+            bbr_build.log
+            /tmp/rtl_build.log
 
-      - name: Upload kernel zip
+      - name: Upload Magisk module
         uses: actions/upload-artifact@v4
         with:
-          name: lmi-kernel-${{ github.run_number }}
-          path: lmi-kernel-${{ github.run_number }}.zip
+          name: lmi-bbr-wifi-module
+          path: lmi-bbr-wifi-module.zip
