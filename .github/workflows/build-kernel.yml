@@ -38,6 +38,17 @@ jobs:
             sed -i '1i subdir-y += vendor' arch/arm64/boot/dts/Makefile
           fi
 
+      - name: Remove problematic non-lmi dtb targets
+        run: |
+          echo "----- Menghapus kona-rumi.dts yang tidak relevan dan menyebabkan build error -----"
+          find arch/arm64/boot/dts/vendor/qcom -iname "*rumi*" -exec rm -v {} \;
+          echo "----- Cek Makefile qcom, hapus referensi rumi kalau ada -----"
+          grep -rn "rumi" arch/arm64/boot/dts/vendor/qcom/Makefile || echo "tidak ada referensi rumi di Makefile"
+          if grep -q "rumi" arch/arm64/boot/dts/vendor/qcom/Makefile 2>/dev/null; then
+            sed -i '/rumi/d' arch/arm64/boot/dts/vendor/qcom/Makefile
+            echo "Baris referensi rumi dihapus dari Makefile"
+          fi
+
       - name: Install dependencies
         run: |
           sudo apt-get update
