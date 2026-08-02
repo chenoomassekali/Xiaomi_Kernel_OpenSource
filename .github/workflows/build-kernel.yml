@@ -16,7 +16,6 @@ jobs:
 
       - name: Cari commit paling dekat dengan tanggal build kernel stok (4 Agustus 2020)
         run: |
-          echo "----- Commit terdekat sebelum/pada 4 Agustus 2020 -----"
           TARGET_COMMIT=$(git log --before="2020-08-05" -1 --format="%H")
           echo "Commit yang dipakai: $TARGET_COMMIT"
           git log -1 "$TARGET_COMMIT"
@@ -50,7 +49,7 @@ jobs:
         run: |
           sed -i -E 's/^(\s*)print (.+)$/\1print(\2)/' scripts/gcc-wrapper.py 2>/dev/null || echo "skip"
 
-      - name: Prepare kernel build tree (modules_prepare)
+      - name: Prepare kernel build tree (full prepare + modules_prepare)
         run: |
           export PATH="${{ github.workspace }}/clang/bin:$PATH"
           export CROSS_COMPILE=aarch64-linux-gnu-
@@ -60,7 +59,6 @@ jobs:
 
           make O=out ARCH=arm64 CC="$CC" LD=ld.lld HOSTCFLAGS="-fcommon" lmi_user_defconfig
 
-          # Pastikan BBR dibuild sebagai MODULE (m), bukan built-in (y)
           ./scripts/config --file out/.config -e TCP_CONG_ADVANCED
           ./scripts/config --file out/.config -m TCP_CONG_BBR
           ./scripts/config --file out/.config -m NET_SCH_FQ
@@ -73,11 +71,20 @@ jobs:
           grep "CONFIG_TCP_CONG_BBR" out/.config
           grep "CONFIG_NET_SCH_FQ" out/.config
 
-          echo "----- Menyiapkan kernel tree untuk build modul eksternal -----"
+          echo "----- Generate semua file 'generated' yang dibutuhkan (termasuk timeconst.h) -----"
           make -j$(nproc) O=out ARCH=arm64 CC="$CC" LD=ld.lld \
             CROSS_COMPILE=$CROSS_COMPILE CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 \
             HOSTCFLAGS="-fcommon" \
-            modules_prepare 2>&1 | tee prepare.log
+            prepare 2>&1 | tee prepare.log
+
+          echo "----- modules_prepare -----"
+          make -j$(nproc) O=out ARCH=arm64 CC="$CC" LD=ld.lld \
+            CROSS_COMPILE=$CROSS_COMPILE CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 \
+            HOSTCFLAGS="-fcommon" \
+            modules_prepare 2>&1 | tee -a prepare.log
+
+          echo "----- Verifikasi timeconst.h ada -----"
+          find out -name "timeconst.h"
 
       - name: Build modul BBR (tcp_bbr.ko)
         run: |
@@ -105,21 +112,26 @@ jobs:
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CC="clang --target=aarch64-linux-gnu-"
           KERNEL_DIR="$(pwd)/out"
+          KVER="$(cat $KERNEL_DIR/include/config/kernel.release 2>/dev/null || echo 4.19.81-perf-g7ec11a9)"
+          echo "KVER yang dipakai: $KVER"
 
           cd /tmp/rtl88xxau
           make ARCH=arm64 CROSS_COMPILE=$CROSS_COMPILE CC="$CC" \
             KSRC="$KERNEL_DIR" \
-            KVER="$(cat $KERNEL_DIR/include/config/kernel.release 2>/dev/null || echo 4.19.81-perf-g7ec11a9)" \
+            KVER="$KVER" \
             modules 2>&1 | tee /tmp/rtl_build.log || echo "Build RTL88XXAU selesai dengan kemungkinan warning, cek log"
 
           echo "----- Cek hasil modul RTL88XXAU -----"
-          find /tmp/rtl8812au -name "*.ko"
+          find /tmp/rtl88xxau -name "*.ko"
 
       - name: Package sebagai Magisk Module
         run: |
           mkdir -p magisk_module/system/lib/modules
           cp out/net/ipv4/tcp_bbr.ko magisk_module/system/lib/modules/ 2>/dev/null || echo "tcp_bbr.ko tidak ditemukan"
-          find /tmp/rtl8812au -name "*.ko" -exec cp {} magisk_module/system/lib/modules/ \; 2>/dev/null || echo "modul RTL88XXAU tidak ditemukan"
+          find /tmp/rtl88xxau -name "*.ko" -exec cp {} magisk_module/system/lib/modules/ \; 2>/dev/null || echo "modul RTL88XXAU tidak ditemukan"
+
+          echo "----- Isi folder modules sebelum packaging -----"
+          ls -la magisk_module/system/lib/modules/
 
           cat > magisk_module/module.prop << 'EOF'
           id=lmi_bbr_wifi_modules
@@ -134,13 +146,11 @@ jobs:
           #!/system/bin/sh
           MODDIR=${0%/*}
           
-          # Load modul BBR
           if [ -f "$MODDIR/system/lib/modules/tcp_bbr.ko" ]; then
             insmod "$MODDIR/system/lib/modules/tcp_bbr.ko" 2>/dev/null
             sysctl -w net.ipv4.tcp_congestion_control=bbr 2>/dev/null
           fi
           
-          # Load modul WiFi adapter RTL88XXAU
           for ko in "$MODDIR"/system/lib/modules/88XXau*.ko "$MODDIR"/system/lib/modules/*rtl88*.ko; do
             if [ -f "$ko" ]; then
               insmod "$ko" 2>/dev/null
