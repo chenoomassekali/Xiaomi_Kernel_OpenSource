@@ -38,6 +38,14 @@ jobs:
           ./antman -S
           echo "$(pwd)/bin" >> $GITHUB_PATH
 
+      - name: Setup cross-assembler symlink (fix 'as: unrecognized option -EL')
+        run: |
+          mkdir -p $HOME/cross-as
+          ln -sf $(command -v aarch64-linux-gnu-as) $HOME/cross-as/as
+          echo "----- Verifikasi symlink -----"
+          ls -la $HOME/cross-as/
+          $HOME/cross-as/as --version | head -1
+
       - name: Set environment
         run: |
           echo "ARCH=arm64" >> $GITHUB_ENV
@@ -55,7 +63,7 @@ jobs:
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
           export HOSTCFLAGS="-fcommon"
-          export CC="clang --target=aarch64-linux-gnu-"
+          export CC="clang --target=aarch64-linux-gnu- -B$HOME/cross-as"
 
           make O=out ARCH=arm64 CC="$CC" LD=ld.lld HOSTCFLAGS="-fcommon" lmi_user_defconfig
 
@@ -71,7 +79,7 @@ jobs:
           grep "CONFIG_TCP_CONG_BBR" out/.config
           grep "CONFIG_NET_SCH_FQ" out/.config
 
-          echo "----- Generate semua file 'generated' yang dibutuhkan (termasuk timeconst.h) -----"
+          echo "----- Generate semua file 'generated' (termasuk timeconst.h) -----"
           make -j$(nproc) O=out ARCH=arm64 CC="$CC" LD=ld.lld \
             CROSS_COMPILE=$CROSS_COMPILE CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 \
             HOSTCFLAGS="-fcommon" \
@@ -90,14 +98,17 @@ jobs:
         run: |
           export PATH="${{ github.workspace }}/clang/bin:$PATH"
           export CROSS_COMPILE=aarch64-linux-gnu-
-          export CC="clang --target=aarch64-linux-gnu-"
+          export CC="clang --target=aarch64-linux-gnu- -B$HOME/cross-as"
+
+          echo "----- Isi net/ipv4/Makefile terkait tcp_bbr -----"
+          grep -n "bbr" net/ipv4/Makefile
 
           make -j$(nproc) O=out ARCH=arm64 CC="$CC" LD=ld.lld \
             CROSS_COMPILE=$CROSS_COMPILE HOSTCFLAGS="-fcommon" \
             M=net/ipv4 tcp_bbr.ko 2>&1 | tee bbr_build.log
 
-          echo "----- Cek hasil tcp_bbr.ko -----"
-          find out -name "tcp_bbr.ko"
+          echo "----- Cek hasil tcp_bbr.ko di seluruh folder out -----"
+          find out -name "tcp_bbr.ko" -o -name "tcp_bbr.o"
 
       - name: Clone driver RTL88XXAU (aircrack-ng, kompatibel kernel 4.19)
         run: |
@@ -110,7 +121,7 @@ jobs:
           export PATH="${{ github.workspace }}/clang/bin:$PATH"
           export ARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
-          export CC="clang --target=aarch64-linux-gnu-"
+          export CC="clang --target=aarch64-linux-gnu- -B$HOME/cross-as"
           KERNEL_DIR="$(pwd)/out"
           KVER="$(cat $KERNEL_DIR/include/config/kernel.release 2>/dev/null || echo 4.19.81-perf-g7ec11a9)"
           echo "KVER yang dipakai: $KVER"
@@ -127,7 +138,7 @@ jobs:
       - name: Package sebagai Magisk Module
         run: |
           mkdir -p magisk_module/system/lib/modules
-          cp out/net/ipv4/tcp_bbr.ko magisk_module/system/lib/modules/ 2>/dev/null || echo "tcp_bbr.ko tidak ditemukan"
+          find out -name "tcp_bbr.ko" -exec cp {} magisk_module/system/lib/modules/ \; 2>/dev/null || echo "tcp_bbr.ko tidak ditemukan"
           find /tmp/rtl88xxau -name "*.ko" -exec cp {} magisk_module/system/lib/modules/ \; 2>/dev/null || echo "modul RTL88XXAU tidak ditemukan"
 
           echo "----- Isi folder modules sebelum packaging -----"
