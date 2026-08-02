@@ -10,21 +10,33 @@ jobs:
       - name: Checkout kernel source
         uses: actions/checkout@v4
         with:
+          repository: MiCode/Xiaomi_Kernel_OpenSource
+          ref: lmi-q-oss
           submodules: recursive
 
-      - name: Debug - cek apakah vendor/Makefile beneran ada saat checkout
+      - name: Clone device tree repo (terpisah dari kernel source)
         run: |
-          echo "----- Isi folder arch/arm64/boot/dts -----"
-          ls -la arch/arm64/boot/dts/
-          echo "----- Cek vendor/Makefile -----"
-          ls -la arch/arm64/boot/dts/vendor/ 2>&1
-          echo "----- Isi vendor/Makefile kalau ada -----"
-          cat arch/arm64/boot/dts/vendor/Makefile 2>&1
-          echo "----- Cek vendor/qcom/Makefile -----"
-          ls -la arch/arm64/boot/dts/vendor/qcom/ 2>&1 | head -5
-          echo "----- Git status/log terkait vendor -----"
-          git log --oneline -3 -- arch/arm64/boot/dts/vendor/
-          git status arch/arm64/boot/dts/vendor/
+          git clone --depth=1 --branch lmi-q-oss https://github.com/MiCode/kernel_devicetree.git /tmp/kernel_devicetree
+          echo "----- Isi kernel_devicetree -----"
+          ls -la /tmp/kernel_devicetree/
+
+      - name: Merge device tree ke dalam kernel source
+        run: |
+          mkdir -p arch/arm64/boot/dts/vendor
+          cp -r /tmp/kernel_devicetree/* arch/arm64/boot/dts/vendor/
+          echo "----- Isi arch/arm64/boot/dts/vendor setelah merge -----"
+          ls -la arch/arm64/boot/dts/vendor/
+          echo "----- Cek folder xiaomi/lmi -----"
+          find arch/arm64/boot/dts/vendor -iname "*lmi*"
+
+      - name: Verify top-level dts Makefile includes vendor
+        run: |
+          echo "----- Isi arch/arm64/boot/dts/Makefile -----"
+          cat arch/arm64/boot/dts/Makefile
+          if ! grep -q "vendor" arch/arm64/boot/dts/Makefile; then
+            echo "PERINGATAN: Makefile top-level belum reference folder vendor, menambahkan fallback"
+            sed -i '1i subdir-y += vendor' arch/arm64/boot/dts/Makefile
+          fi
 
       - name: Install dependencies
         run: |
@@ -56,23 +68,27 @@ jobs:
 
       - name: Fix implicit int declaration in smp.c
         run: |
-          sed -i 's/^extern in_long_press;/extern int in_long_press;/' arch/arm64/kernel/smp.c
+          sed -i 's/^extern in_long_press;/extern int in_long_press;/' arch/arm64/kernel/smp.c 2>/dev/null || echo "smp.c fix tidak diperlukan/tidak ditemukan, skip"
 
       - name: Fix missing prototype in hwconf_manager.c
         run: |
-          sed -i 's/static char \*hw_item_dump()/static char *hw_item_dump(void)/' arch/arm64/kernel/hwconf_manager.c
+          sed -i 's/static char \*hw_item_dump()/static char *hw_item_dump(void)/' arch/arm64/kernel/hwconf_manager.c 2>/dev/null || echo "hwconf_manager.c fix tidak diperlukan/tidak ditemukan, skip"
 
       - name: Fix missing prototypes in xiaomi_touch.c
         run: |
           sed -i \
             -e 's/struct class \*get_xiaomi_touch_class()/struct class *get_xiaomi_touch_class(void)/' \
             -e 's/struct device \*get_xiaomi_touch_dev()/struct device *get_xiaomi_touch_dev(void)/' \
-            drivers/input/touchscreen/xiaomi/xiaomi_touch.c
+            drivers/input/touchscreen/xiaomi/xiaomi_touch.c 2>/dev/null || echo "xiaomi_touch.c fix tidak diperlukan/tidak ditemukan, skip"
 
-      - name: Fix gsi.c modversion relocation error
+      - name: Fix gsi.c modversion relocation error (jika ada)
         run: |
-          sed -i 's/static union __packed gsi_channel_scratch/static union gsi_channel_scratch/' drivers/platform/msm/gsi/gsi.c
-          grep -n "static union gsi_channel_scratch __gsi_update_mhi_channel_scratch" drivers/platform/msm/gsi/gsi.c
+          if [ -f drivers/platform/msm/gsi/gsi.c ]; then
+            sed -i 's/static union __packed gsi_channel_scratch/static union gsi_channel_scratch/' drivers/platform/msm/gsi/gsi.c
+            grep -n "static union gsi_channel_scratch __gsi_update_mhi_channel_scratch" drivers/platform/msm/gsi/gsi.c
+          else
+            echo "gsi.c tidak ditemukan di tree ini, skip fix"
+          fi
 
       - name: Check for RTL88XXAU driver in tree
         run: |
@@ -119,7 +135,7 @@ jobs:
             KCFLAGS="$KCFLAGS" \
             Image.gz-dtb \
             2>&1 | tee build.log
-          echo "----- Build dtbs (termasuk dtbo dari vendor jika ke-include) -----"
+          echo "----- Build dtbs (device tree dari kernel_devicetree repo) -----"
           make -j1 O=out ARCH=arm64 \
             CC="clang --target=aarch64-linux-gnu- -B$HOME/cross-as" \
             LD=ld.lld \
@@ -136,15 +152,14 @@ jobs:
             echo "Build failed, Image.gz-dtb not found"
             exit 1
           fi
-          echo "----- Cek dtbo.img hasil build -----"
+          echo "----- Cek DTB/dtbo hasil build -----"
+          find out/arch/arm64/boot -iname "*lmi*"
+          find out/arch/arm64/boot -iname "*.dtb" | head -20
           if [ -f out/arch/arm64/boot/dtbo.img ]; then
             ls -la out/arch/arm64/boot/dtbo.img
             echo "dtbo.img BERHASIL di-generate"
           else
-            echo "PERINGATAN: dtbo.img TIDAK ditemukan meski target dtbs sudah dijalankan"
-            find out/arch/arm64/boot -iname "*dtbo*"
-            find out/arch/arm64/boot -iname "*lmi*"
-            find out/arch/arm64/boot -iname "*kona*"
+            echo "dtbo.img tidak digabung sebagai satu file, cek .dtbo individual di atas"
           fi
 
       - name: Clone AnyKernel3
@@ -169,14 +184,14 @@ jobs:
           echo "----- Hasil konfigurasi anykernel.sh -----"
           grep -E "kernel.string|device.name|supported.versions|IS_SLOT_DEVICE|BLOCK=" anykernel.sh
 
-      - name: Package kernel (dengan dtbo.img fresh hasil build)
+      - name: Package kernel
         run: |
           cp out/arch/arm64/boot/Image.gz-dtb AK3/
           if [ -f out/arch/arm64/boot/dtbo.img ]; then
             cp out/arch/arm64/boot/dtbo.img AK3/
             echo "dtbo.img ikut dipackage"
           else
-            echo "dtbo.img tidak ada, packaging tanpa dtbo (pakai dtbo vendor bawaan)"
+            echo "dtbo.img tidak ada, packaging tanpa dtbo (pakai dtbo stok device)"
           fi
           cd AK3
           zip -r9 ../lmi-kernel-${{ github.run_number }}.zip . -x '.git*'
