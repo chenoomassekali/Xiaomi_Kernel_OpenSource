@@ -38,7 +38,7 @@ jobs:
           ./antman -S
           echo "$(pwd)/bin" >> $GITHUB_PATH
 
-      - name: Setup cross-assembler symlink (fix 'as: unrecognized option -EL')
+      - name: "Setup cross-assembler symlink (fix as unrecognized option EL)"
         run: |
           mkdir -p $HOME/cross-as
           ln -sf $(command -v aarch64-linux-gnu-as) $HOME/cross-as/as
