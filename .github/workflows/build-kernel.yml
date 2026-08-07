@@ -1,182 +1,61 @@
-name: Build Kernel Modules (BBR + RTL88XXAU)
+id=unrestrict_ninjavpn
+name=Unrestrict Data - Ninja VPN
+version=v1.0
+versionCode=1
+author=cheno
+description=Menghapus pembatasan data OS Android (Data Saver, background restriction, Doze throttling) untuk Ninja VPN
+
+#!/system/bin/sh
+PKG="app.ninjavpn.android"
+
+# Tunggu boot selesai
+while [ "$(getprop sys.boot_completed)" != "1" ]; do sleep 1; done
+sleep 5
+
+UID_NUM=$(dumpsys package $PKG | grep -m1 "userId=" | sed 's/.*userId=//')
+
+if [ -n "$UID_NUM" ]; then
+  cmd netpolicy add-restrict-background-whitelist $UID_NUM
+  cmd netpolicy remove-restrict-background-blacklist $UID_NUM
+  cmd netpolicy set-uid-policy $UID_NUM 0
+  dumpsys deviceidle whitelist +$PKG
+  cmd appops set $PKG RUN_IN_BACKGROUND allow
+  cmd appops set $PKG RUN_ANY_IN_BACKGROUND allow
+fi
+
+cmd netpolicy set-restrict-background false
+settings put global data_saver_mode 0
+
+log -t unrestrict_ninjavpn "Applied unrestrict policy for $PKG (uid=$UID_NUM)"
+name: Build Ninja VPN Unrestrict Module
 
 on:
+  push:
+    paths:
+      - 'module/**'
+      - '.github/workflows/build-ninjavpn-module.yml'
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout kernel source
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+
+      - name: Zip module
+        run: |
+          cd module
+          zip -r ../unrestrict_ninjavpn.zip .
+
+      - uses: actions/upload-artifact@v4
         with:
-          repository: MiCode/Xiaomi_Kernel_OpenSource
-          ref: lmi-q-oss
-          submodules: recursive
+          name: unrestrict_ninjavpn
+          path: unrestrict_ninjavpn.zip
 
-      - name: Cari commit paling dekat dengan tanggal build kernel stok (4 Agustus 2020)
-        run: |
-          TARGET_COMMIT=$(git log --before="2020-08-05" -1 --format="%H")
-          echo "Commit yang dipakai: $TARGET_COMMIT"
-          git log -1 "$TARGET_COMMIT"
-          git checkout "$TARGET_COMMIT"
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y bc bison ca-certificates curl flex \
-            libssl-dev libelf-dev python3 python3-pip python3-dev \
-            git zip unzip build-essential libncurses-dev \
-            binutils-aarch64-linux-gnu binutils-arm-linux-gnueabi
-
-      - name: Setup Neutron Clang
-        run: |
-          mkdir -p clang
-          cd clang
-          curl -LO https://raw.githubusercontent.com/Neutron-Toolchains/antman/main/antman
-          chmod +x antman
-          ./antman -S
-          echo "$(pwd)/bin" >> $GITHUB_PATH
-
-      - name: "Setup cross-assembler symlink (fix as unrecognized option EL)"
-        run: |
-          mkdir -p $HOME/cross-as
-          ln -sf $(command -v aarch64-linux-gnu-as) $HOME/cross-as/as
-          ls -la $HOME/cross-as/
-          $HOME/cross-as/as --version | head -1
-
-      - name: Set environment
-        run: |
-          echo "ARCH=arm64" >> $GITHUB_ENV
-          echo "SUBARCH=arm64" >> $GITHUB_ENV
-          echo "KBUILD_BUILD_USER=chenoomassekali" >> $GITHUB_ENV
-          echo "KBUILD_BUILD_HOST=github-actions" >> $GITHUB_ENV
-
-      - name: Fix Python2 syntax in build scripts
-        run: |
-          sed -i -E 's/^(\s*)print (.+)$/\1print(\2)/' scripts/gcc-wrapper.py 2>/dev/null || echo "skip"
-
-      - name: Build kernel + semua modul (termasuk tcp_bbr.ko)
-        run: |
-          export PATH="${{ github.workspace }}/clang/bin:$PATH"
-          export CROSS_COMPILE=aarch64-linux-gnu-
-          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
-          export HOSTCFLAGS="-fcommon"
-          export KCFLAGS="-Wno-error=unused-but-set-variable -Wno-error=unused-variable -Wno-error=implicit-fallthrough"
-          export CC="clang --target=aarch64-linux-gnu- -B$HOME/cross-as"
-
-          make O=out ARCH=arm64 CC="$CC" LD=ld.lld HOSTCFLAGS="-fcommon" lmi_user_defconfig
-
-          ./scripts/config --file out/.config -e TCP_CONG_ADVANCED
-          ./scripts/config --file out/.config -m TCP_CONG_BBR
-          ./scripts/config --file out/.config -m NET_SCH_FQ
-          ./scripts/config --file out/.config -e MODULES
-          ./scripts/config --file out/.config -e MODULE_UNLOAD
-
-          make O=out ARCH=arm64 CC="$CC" LD=ld.lld HOSTCFLAGS="-fcommon" olddefconfig
-
-          echo "----- Verifikasi config BBR sebagai module -----"
-          grep "CONFIG_TCP_CONG_BBR" out/.config
-          grep "CONFIG_NET_SCH_FQ" out/.config
-
-          echo "----- Build Image.gz-dtb dulu (diperlukan supaya archprepare/vdso_prepare lengkap) -----"
-          make -j$(nproc) O=out ARCH=arm64 CC="$CC" LD=ld.lld \
-            CROSS_COMPILE=$CROSS_COMPILE CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 \
-            HOSTCFLAGS="-fcommon" KCFLAGS="$KCFLAGS" \
-            Image.gz-dtb 2>&1 | tee build.log
-
-          echo "----- Build semua modul (make modules), termasuk tcp_bbr.ko -----"
-          make -j$(nproc) O=out ARCH=arm64 CC="$CC" LD=ld.lld \
-            CROSS_COMPILE=$CROSS_COMPILE CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 \
-            HOSTCFLAGS="-fcommon" KCFLAGS="$KCFLAGS" \
-            modules 2>&1 | tee -a build.log
-
-          echo "----- Cek hasil tcp_bbr.ko di seluruh folder out -----"
-          find out -name "tcp_bbr.ko" -o -name "sch_fq.ko"
-
-      - name: Clone driver RTL88XXAU (aircrack-ng, kompatibel kernel 4.19)
-        run: |
-          git clone --depth=1 https://github.com/aircrack-ng/rtl8812au.git /tmp/rtl88xxau
-          ls -la /tmp/rtl88xxau/
-
-      - name: Build modul RTL88XXAU (88XXau.ko)
-        run: |
-          export PATH="${{ github.workspace }}/clang/bin:$PATH"
-          export ARCH=arm64
-          export CROSS_COMPILE=aarch64-linux-gnu-
-          export CC="clang --target=aarch64-linux-gnu- -B$HOME/cross-as"
-          KERNEL_DIR="$(pwd)/out"
-          KVER="$(cat $KERNEL_DIR/include/config/kernel.release 2>/dev/null || echo 4.19.81-perf-g7ec11a9)"
-          echo "KVER yang dipakai: $KVER"
-
-          cd /tmp/rtl88xxau
-          make ARCH=arm64 CROSS_COMPILE=$CROSS_COMPILE CC="$CC" \
-            KSRC="$KERNEL_DIR" \
-            KVER="$KVER" \
-            modules 2>&1 | tee /tmp/rtl_build.log || echo "Build RTL88XXAU selesai dengan kemungkinan warning, cek log"
-
-          echo "----- Cek hasil modul RTL88XXAU -----"
-          find /tmp/rtl88xxau -name "*.ko"
-
-      - name: Package sebagai Magisk Module
-        run: |
-          mkdir -p magisk_module/system/lib/modules
-          find out -name "tcp_bbr.ko" -exec cp {} magisk_module/system/lib/modules/ \; 2>/dev/null || echo "tcp_bbr.ko tidak ditemukan"
-          find out -name "sch_fq.ko" -exec cp {} magisk_module/system/lib/modules/ \; 2>/dev/null || echo "sch_fq.ko tidak ditemukan"
-          find /tmp/rtl88xxau -name "*.ko" -exec cp {} magisk_module/system/lib/modules/ \; 2>/dev/null || echo "modul RTL88XXAU tidak ditemukan"
-
-          echo "----- Isi folder modules sebelum packaging -----"
-          ls -la magisk_module/system/lib/modules/
-
-          cat > magisk_module/module.prop << 'EOF'
-          id=lmi_bbr_wifi_modules
-          name=LMI BBR + RTL88XXAU Modules
-          version=v1.0
-          versionCode=1
-          author=chenoomassekali
-          description=Modul kernel BBR congestion control dan driver RTL88XXAU untuk kernel stok lmi 4.19.81-perf-g7ec11a9
-          EOF
-
-          cat > magisk_module/service.sh << 'EOF'
-          #!/system/bin/sh
-          MODDIR=${0%/*}
-          
-          if [ -f "$MODDIR/system/lib/modules/sch_fq.ko" ]; then
-            insmod "$MODDIR/system/lib/modules/sch_fq.ko" 2>/dev/null
-          fi
-          
-          if [ -f "$MODDIR/system/lib/modules/tcp_bbr.ko" ]; then
-            insmod "$MODDIR/system/lib/modules/tcp_bbr.ko" 2>/dev/null
-            sysctl -w net.ipv4.tcp_congestion_control=bbr 2>/dev/null
-          fi
-          
-          for ko in "$MODDIR"/system/lib/modules/88XXau*.ko "$MODDIR"/system/lib/modules/*rtl88*.ko; do
-            if [ -f "$ko" ]; then
-              insmod "$ko" 2>/dev/null
-            fi
-          done
-          EOF
-          chmod 755 magisk_module/service.sh
-
-          touch magisk_module/skip_mount
-
-          cd magisk_module
-          zip -r9 ../lmi-bbr-wifi-module.zip . -x '.git*'
-          cd ..
-          echo "----- Isi paket akhir -----"
-          unzip -l lmi-bbr-wifi-module.zip
-
-      - name: Upload build logs
-        uses: actions/upload-artifact@v4
-        if: always()
+      - uses: softprops/action-gh-release@v2
         with:
-          name: build-logs
-          path: |
-            build.log
-            /tmp/rtl_build.log
-
-      - name: Upload Magisk module
-        uses: actions/upload-artifact@v4
-        with:
-          name: lmi-bbr-wifi-module
-          path: lmi-bbr-wifi-module.zip
+          tag_name: ninjavpn-build-${{ github.run_number }}
+          name: Unrestrict Ninja VPN ${{ github.run_number }}
+          files: unrestrict_ninjavpn.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
