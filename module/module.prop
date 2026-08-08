@@ -1,0 +1,6 @@
+id=unrestrict_ninjavpn
+name=Unrestrict Data - Ninja VPN
+version=v1.0
+versionCode=1
+author=cheno
+description=Menghapus pembatasan data OS Android (Data Saver, background restriction, Doze throttling) untuk Ninja VPN
